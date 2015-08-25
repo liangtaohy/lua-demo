@@ -63,3 +63,50 @@ avgA = avgMatrix[1];
 for i=2,n do
 	print(matrix_multi(rMatrix[1], rMatrix[i], avgA, avgMatrix[i]));
 end
+
+--[[
+对数组arr从大到小进行排序，并返回前K个下标
+--]]
+function ArraySortK(arr, K)
+	local sorted = {}
+
+	local cur = 1
+	for i,v in pairs(arr) do
+		if cur > K then
+			break
+		end
+		for j=cur-1,1,-1 do
+			if v > arr[sorted[j]] then
+				cur = j
+			else
+				break
+			end
+		end
+		table.insert(keys, cur, i)
+		cur = cur + 1
+	end
+	return sorted
+end
+
+--[[
+topN推荐
+@param UID user 当前用户u
+@param Matrix train 训练集
+@param Matrix w [u,v]相似度矩阵
+@param Number K K个与用户u相似的用户
+--]]
+function RecommendTopN(user, train, w, K)
+	local rank = {}
+	local interacted_items = train[user]
+	local wu = table.sort(w[u])
+	local sortedKeys = ArraySortK(wu, K)
+	for _, v in pairs(sortedKeys) do
+		local wuv = wu[v]
+		for i,rvi in pairs(train[v]) do
+			if interacted_items[i] == nil then -- 用户user没有访问过该物品
+				rank[i] = rank[i] and rank[i] + wuv*rvi or wuv*rvi
+			end
+		end
+	end
+	return rank
+end

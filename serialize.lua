@@ -18,29 +18,40 @@ local intentTab = intent()
 --]]
 function Helper.serialize(o)
 	local _t = type(o)
+	local _str = ""
 	if _t == 'nil' then
 		io.write(tostring(o))
+		_str = tostring(o)
 	elseif _t == 'boolean' then
 		io.write(tostring(o))
+		_str = tostring(o)
 	elseif _t == 'number' then
 		io.write(o)
+		_str = _str .. o
 	elseif _t == 'string' then
 		io.write(string.format("%q", o))
+		_str = string.format("%q", o)
 	elseif _t == 'table' then
 		io.write('{\n');
+		_str = '{\n'
 		local tab = intentTab()
 		local tabstr = table.concat(tab)
 		for k,v in pairs(o) do
 			io.write(tabstr .. "[")
-			Helper.serialize(k)
+			_str = _str .. tabstr .. "["
+			_str = _str .. Helper.serialize(k)
 			io.write("] = ")
-			Helper.serialize(v)
+			_str = _str .. "] = "
+			_str = _str .. Helper.serialize(v)
 			io.write(",\n")
+			_str = _str .. ",\n"
 		end
 		table.remove(tab)
 		local tab2 = table.concat(tab)
 		io.write(tab2 .. '}')
+		_str = _str .. tab2 .. '}'
 	end
+	return _str
 end
 
 --[[

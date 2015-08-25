@@ -1,5 +1,13 @@
 -- recommendbook.lua
+--[[
+# 协同过滤实验之基于用户领域的协同过滤
+## 用户相似度算法：
+1. Jaccard相似度
+2. 余弦相似度
+3. Pearson相似度
+## 数据集
 
+--]]
 -- 加载Matrix类
 local matrix = require('test_matrix')
 local math = require('math')
@@ -8,6 +16,7 @@ local Helper = require("serialize")
 
 -- 数据集：ratings.data (MovieLens的投票数据，中等，约100万行，6000多用户，近4000部电影)
 local RAW_DATA_FILE = "/Users/baidu/Downloads/ml-1m/ratings.dat"
+local OUTPUT_FILE = "/Users/baidu/Downloads/ml-1m/wuv.dat"
 local ROW = {from=1,to=6040}
 local COL = {from=1,to=3952}
 local uPrefix = "u"
@@ -21,6 +30,9 @@ function LoadData(filename)
 	local t1 = os.time()
 
 	local handle = io.open(filename, "r")
+	if handle == nil then
+		error("failed to open file: [" .. filename .. "] in r mode")
+	end
 	local re = {}
 	for line in handle:lines() do
 		local data = {}
@@ -40,10 +52,14 @@ end
 
 function SaveToFile(filename, doc)
 	local handle = io.open(filename, "w")
+	if handle == nil then
+		error("failed to open file: [" .. filename .. "] in w mode")
+	end
 	handle:write(doc)
 	handle:flush()
 	handle:close()
 end
+
 --[[
 加载初始数据，生成uid,mid(s)矩阵
 --]]
@@ -70,6 +86,95 @@ function LoadIntoUserMatrix(data)
 	print("Load raw data into uid-mid matrix end ...")
 	print("uid-mid matrix colums: " .. size .. ", time used: " .. os.difftime(t2, t1) .. "s")
 	return re
+end
+
+--[[
+构建物品-用户倒排表
+--]]
+function BuildItemUsersInverseTable(data)
+	print("Load raw data into item-users matrix begin ...")
+
+	local t1 = os.time()
+
+	local re = {}
+
+	for _,v in pairs() do
+		local item = v[2]
+		if re[item] == nil then
+			re[item] = {}
+		end
+		table.insert(re[item], v[1]) -- insert user into users queue
+	end
+
+	local t2 = os.time()
+	print("Load raw data into item-users matrix end ...")
+	print("item-users matrix time used: " .. os.difftime(t2, t1) .. "s")
+	return re
+end
+
+--[[
+构建物品-用户倒排表
+输入为train矩阵，结构为：[ [u] = items], items = [ [item] = 1 ], u为uid, item为movie id
+--]]
+function BuildItemInverseTableByTrain(train)
+	print("Build item_users inverse table by train dataset")
+	local t1 = os.time()
+
+	local re = {}
+
+	for u,items in pairs(train) do
+		for _, item in pairs(items) do
+			if re[item] == nil then
+				re[item] = {}
+			end
+			table.insert(re[item], u)
+		end
+	end
+
+	local t2 = os.time()
+	print("Build item_users inverse table by train dataset: " .. os.difftime(t2, t1) .. "s")
+
+	return re
+end
+--[[
+用户相似度计算
+算法为余弦相似度公式
+未考虑物品评分信息，只考虑用户对物品是否有过行为
+--]]
+function UserSimilarity_sin(train)
+	print("UserSimilarity_sin begin ...")
+
+	local t1 = os.time()
+
+	local N = {} -- N[u]为用户u有过行为的物品数量
+	local C = {} -- C[u][v]为用户[u,v]有过行为的物品数量
+
+	for item, users in pairs(train) do
+		for _,u in pairs(users) do
+			N[u] = N[u] and N[u] + 1 or 1
+			C[u] = C[u] or {}
+			for _,v in pairs(users) do
+				if u ~= v then
+					C[u][v] = C[u][v] and C[u][v] + 1 or 1
+				end
+			end
+		end
+	end
+
+	local W = {} -- W[u][v]为[u,v]相似度
+	for u, related_users in pairs(C) do
+		W[u] = {}
+		for v, cuv in pairs(related_users) do
+			W[u][v] = cuv / math.sqrt(N[u]*N[v])
+			local log = string.format("%s %s %f", tostring(u), tostring(v), W[u][v])
+			print(log)
+		end
+	end
+
+	local t2 = os.time()
+	print("UserSimilarity_sin time used: " .. os.difftime(t2, t1) .. "s")
+
+	return W
 end
 
 --[[
@@ -141,6 +246,11 @@ function SplitData(data, M, k, seed)
 	return train, test
 end
 
+--[[
+[u,v]用户相似度
+算法为Jaccard公式
+未考虑评分信息，只考虑是否有过行为
+--]]
 function W_U_V_Jaccard(data)
 	print("W_U_V_Jaccard matrix begin ...")
 
@@ -170,5 +280,9 @@ local raw = LoadData(RAW_DATA_FILE)
 local umMtx = LoadIntoUserMatrix(raw)
 dataTest(umMtx)
 local train, test = SplitData(umMtx, 8, 2, os.clock())
-local WuvMtx = W_U_V_Jaccard(train)
-Helper.serialize(WuvMtx)
+--local WuvMtx = W_U_V_Jaccard(train)
+--local Wuv_Str = Helper.serialize(WuvMtx)
+local tTrain = BuildItemInverseTableByTrain(train)
+local W = UserSimilarity_sin(tTrain)
+local w_str = Helper.serialize(W)
+SaveToFile(OUTPUT_FILE, w_str)
