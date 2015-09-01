@@ -1,30 +1,44 @@
--- recommendbook.lua
 --[[
-# 协同过滤实验之基于用户领域的协同过滤
-## 用户相似度算法：
-1. Jaccard相似度
-2. 余弦相似度
-3. Pearson相似度
-## 数据集
-
+@file UserCF.lua
+基于用户的协同过滤算法
 --]]
--- 加载Matrix类
-local matrix = require('test_matrix')
+-- system lib
 local math = require('math')
 local os = require("os")
+local io = require("io")
+-- user lib
+local matrix = require('test_matrix')
 local Helper = require("serialize")
+
+local VERSION = "0.0.1"
+
+local print		= print
+local string	= string
+local sqrt		= math.sqrt
+local pairs		= pairs
+local assert	= assert
+local type		= type
+local table 	= table
+local tonumber	= tonumber
+
+local base = _ENV
+local modename = {}
+local _ENV = modename
 
 -- 数据集：ratings.data (MovieLens的投票数据，中等，约100万行，6000多用户，近4000部电影)
 local RAW_DATA_FILE = "/Users/baidu/Downloads/ml-1m/ratings.dat"
 local OUTPUT_FILE = "/Users/baidu/Downloads/ml-1m/wuv.dat"
 local ROW = {from=1,to=6040}
 local COL = {from=1,to=3952}
-local uPrefix = "u"
+local uPrefix = ""
 
+function version()
+	print(VERSION)
+end
 --[[
 从文件中加载数据，输出为M*4的矩阵，元素为{UserID,MovieID,Rating,Timestamp}
 --]]
-function LoadData(filename)
+local function LoadData(filename)
 	print("Loading data begin ...")
 
 	local t1 = os.time()
@@ -50,7 +64,7 @@ function LoadData(filename)
 	return re
 end
 
-function SaveToFile(filename, doc)
+local function SaveToFile(filename, doc)
 	local handle = io.open(filename, "w")
 	if handle == nil then
 		error("failed to open file: [" .. filename .. "] in w mode")
@@ -63,7 +77,7 @@ end
 --[[
 加载初始数据，生成uid,mid(s)矩阵
 --]]
-function LoadIntoUserMatrix(data)
+local function LoadIntoUserMatrix(data)
 	print("Load raw data into uid-mid matrix begin ...")
 
 	local t1 = os.time()
@@ -91,7 +105,7 @@ end
 --[[
 构建物品-用户倒排表
 --]]
-function BuildItemUsersInverseTable(data)
+local function BuildItemUsersInverseTable(data)
 	print("Load raw data into item-users matrix begin ...")
 
 	local t1 = os.time()
@@ -116,7 +130,7 @@ end
 构建物品-用户倒排表
 输入为train矩阵，结构为：[ [u] = items], items = [ [item] = 1 ], u为uid, item为movie id
 --]]
-function BuildItemInverseTableByTrain(train)
+local function BuildItemInverseTableByTrain(train)
 	print("Build item_users inverse table by train dataset")
 	local t1 = os.time()
 
@@ -141,7 +155,7 @@ end
 算法为余弦相似度公式
 未考虑物品评分信息，只考虑用户对物品是否有过行为
 --]]
-function UserSimilarity_sin(train)
+local function UserSimilarity_sin(train)
 	print("UserSimilarity_sin begin ...")
 
 	local t1 = os.time()
@@ -166,8 +180,6 @@ function UserSimilarity_sin(train)
 		W[u] = {}
 		for v, cuv in pairs(related_users) do
 			W[u][v] = cuv / math.sqrt(N[u]*N[v])
-			local log = string.format("%s %s %f", tostring(u), tostring(v), W[u][v])
-			print(log)
 		end
 	end
 
@@ -180,7 +192,7 @@ end
 --[[
 测试数据矩阵的正确性，汗！！
 --]]
-function dataTest(mtx)
+local function dataTest(mtx)
 	local data = mtx
 
 	if type(data) ~= 'table' then
@@ -213,7 +225,7 @@ end
 --[[
 初始化一个M*N的矩阵
 --]]
-function LoadDataIntoMatrix(raw)
+local function LoadDataIntoMatrix(raw)
 	local mtx = matrix:new(ROW.to, COL.to, nil)
 	for i=1,#raw do
 		mtx[raw[i][1]][raw[i][2]] = 1
@@ -224,7 +236,7 @@ end
 --[[
 给定数据集data，将它随机分成M份，取出其中的第k份，返回第k份，M-1份
 --]]
-function SplitData(data, M, k, seed)
+local function SplitData(data, M, k, seed)
 	print("SplitData matrix begin ...")
 
 	local t1 = os.time()
@@ -251,7 +263,7 @@ end
 算法为Jaccard公式
 未考虑评分信息，只考虑是否有过行为
 --]]
-function W_U_V_Jaccard(data)
+local function W_U_V_Jaccard(data)
 	print("W_U_V_Jaccard matrix begin ...")
 
 	local t1 = os.time()
@@ -276,13 +288,109 @@ function W_U_V_Jaccard(data)
 	return re
 end
 
-local raw = LoadData(RAW_DATA_FILE)
-local umMtx = LoadIntoUserMatrix(raw)
-dataTest(umMtx)
-local train, test = SplitData(umMtx, 8, 2, os.clock())
---local WuvMtx = W_U_V_Jaccard(train)
---local Wuv_Str = Helper.serialize(WuvMtx)
-local tTrain = BuildItemInverseTableByTrain(train)
-local W = UserSimilarity_sin(tTrain)
-local w_str = Helper.serialize(W)
-SaveToFile(OUTPUT_FILE, w_str)
+local function len(t)
+	local length = 0
+	if type(t) ~= 'table' then -- 如果不是table，则返回0即可
+		return 0
+	end
+	for i,_ in pairs(t) do
+		length = length + 1
+	end
+	return length
+end
+
+--[[
+召回率计算
+@param table train 训练集
+@param table test  测试集
+@param number N    推荐数
+@return v 召回率
+--]]
+function Recall(train, test, N)
+	local hit = 0
+	local all = 0
+
+	assert(type(train) == 'table', "Precision param @train must be table,table,number")
+	assert(type(test) ==  'table', "Precision param @test must be table,table,number")
+
+	for user,_ in pairs(train) do
+		local tu = test[user]
+		local rank = GetRecommendation(user, N)
+		for item, pui in pairs(rank) do
+			if tu[item] then
+				hit = hit + 1
+			end
+		end
+		all = all + len(tu)
+	end
+	return hit / all
+end
+
+--[[
+准确率计算
+@param table train 训练集
+@param table test  测试集
+@param number N    推荐数
+@return v 准确率
+--]]
+function Precision(train, test, N)
+	local hit = 0
+	local all = 0
+
+	assert(type(train) == 'table', "Precision param @train must be table,table,number")
+	assert(type(test) ==  'table', "Precision param @test must be table,table,number")
+
+	for user, _ in pairs(train) do
+		local tu = test[user]
+		local rank = GetRecommendation(user, N)
+		for item, pui in pairs(rank) do
+			if tu[item] then
+				hit = hit + 1
+			end
+		end
+		all = all + N
+	end
+	return hit / all
+end
+
+--[[
+召回率和准确率计算
+@param table train 训练集
+@param table test  测试集
+@param number N    推荐数
+@return v1,v2 v1为召回率,v2为准确率
+--]]
+function RecallPrecision(train, test, N)
+	local hit = 0
+	local all = 0
+	local p = 0
+
+	assert(type(train) == 'table', "Precision param @train must be table,table,number")
+	assert(type(test) ==  'table', "Precision param @test must be table,table,number")
+
+	for user,_ in pairs(train) do
+		local tu = test[user]
+		local rank = GetRecommendation(user, N)
+		for item, pui in pairs(rank) do
+			if tu[item] then
+				hit = hit + 1
+			end
+		end
+		all = all + len(tu)
+		p = p + N
+	end
+	return hit / all, hit / p
+end
+
+function buildModel()
+	local raw = LoadData(RAW_DATA_FILE)
+	local umMtx = LoadIntoUserMatrix(raw)
+	dataTest(umMtx)
+	local train, test = SplitData(umMtx, 8, 2, os.clock())
+	local tTrain = BuildItemInverseTableByTrain(train)
+	local W = UserSimilarity_sin(tTrain)
+	local w_str = Helper.serialize(W)
+	SaveToFile(OUTPUT_FILE, w_str)
+end
+
+return modename
