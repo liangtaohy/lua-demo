@@ -20,12 +20,15 @@ local assert	= assert
 local type		= type
 local table 	= table
 local tonumber	= tonumber
+local error		= error
 
 local base = _ENV
 local modename = {}
 local _ENV = modename
 
 -- 数据集：ratings.data (MovieLens的投票数据，中等，约100万行，6000多用户，近4000部电影)
+-- config
+-- 应该移到配置文件中
 local RAW_DATA_FILE = "/Users/baidu/Downloads/ml-1m/ratings.dat"
 local OUTPUT_FILE = "/Users/baidu/Downloads/ml-1m/wuv.dat"
 local ROW = {from=1,to=6040}
@@ -37,6 +40,9 @@ function version()
 end
 --[[
 从文件中加载数据，输出为M*4的矩阵，元素为{UserID,MovieID,Rating,Timestamp}
+逐行读取数据，数据格式为: data::data::data[::...]
+目前，仅支持读取数字类型的数据
+
 --]]
 local function LoadData(filename)
 	print("Loading data begin ...")
@@ -64,6 +70,11 @@ local function LoadData(filename)
 	return re
 end
 
+--[[
+保存doc到文件filename中。如果文件已存在，会覆盖原文件的内容。
+@param string filename 文件路径
+@param string doc 待保存的文档
+--]]
 local function SaveToFile(filename, doc)
 	local handle = io.open(filename, "w")
 	if handle == nil then
@@ -75,7 +86,15 @@ local function SaveToFile(filename, doc)
 end
 
 --[[
-加载初始数据，生成uid,mid(s)矩阵
+加载初始数据，生成uid,mid(s)矩阵 {<u,items>}
+@description
+ 矩阵结构如下:
+ Matrix 		:= {user=items,[...]}
+ user 		:= string -- user id ('u' .. uid),uid通常为整数id
+ items 		:= {[item-id]=value,[...]}, item-id为物品的id, value为整数类型，此处固定为1
+@note 仅支持隐式反馈的数据集
+@param table data - 原始数据矩阵
+ |user id|item id|value1|value2[|...]
 --]]
 local function LoadIntoUserMatrix(data)
 	print("Load raw data into uid-mid matrix begin ...")
@@ -103,7 +122,14 @@ local function LoadIntoUserMatrix(data)
 end
 
 --[[
-构建物品-用户倒排表
+构建物品-用户倒排表 {<item,users>}
+ 结构定义：
+ Matrix 		:= {[item]=users,[...]}
+ item 		:= integer -- 物品id
+ users 		:= {user,[...]}
+ user 		:= mix -- 可以是用户id或者用户的信息数据，一般为id
+@param table data data为{<u,items>}集合
+@return {<item,users>}
 --]]
 local function BuildItemUsersInverseTable(data)
 	print("Load raw data into item-users matrix begin ...")
@@ -127,8 +153,14 @@ local function BuildItemUsersInverseTable(data)
 end
 
 --[[
-构建物品-用户倒排表
-输入为train矩阵，结构为：[ [u] = items], items = [ [item] = 1 ], u为uid, item为movie id
+构建物品-用户倒排表 {<item,users>}
+ 结构定义：
+ Matrix 		:= {[item]=users,[...]}
+ item 		:= integer -- 物品id
+ users 		:= {user,[...]}
+ user 		:= mix -- 可以是用户id或者用户的信息数据，一般为id
+@param table data data为{<u,items>}集合 (训练样本)
+@return {<item,users>}
 --]]
 local function BuildItemInverseTableByTrain(train)
 	print("Build item_users inverse table by train dataset")
@@ -150,10 +182,20 @@ local function BuildItemInverseTableByTrain(train)
 
 	return re
 end
+
 --[[
 用户相似度计算
 算法为余弦相似度公式
 未考虑物品评分信息，只考虑用户对物品是否有过行为
+-----
+输出矩阵W_{uv}: {<u,v,similarity>}
+Matrix 		:= {user=users}
+user 		:= integer -- user id
+users 		:= {user=similarity}
+similarity 	:= float -- 浮点型数据,相似度值,如果为<u,u>,则其值为0
+-----
+@param table train 训练样本
+@return table W 相似度矩阵，结构为 W={w_uv | u,v 属于 users集合}
 --]]
 local function UserSimilarity_sin(train)
 	print("UserSimilarity_sin begin ...")
@@ -223,18 +265,12 @@ local function dataTest(mtx)
 end
 
 --[[
-初始化一个M*N的矩阵
---]]
-local function LoadDataIntoMatrix(raw)
-	local mtx = matrix:new(ROW.to, COL.to, nil)
-	for i=1,#raw do
-		mtx[raw[i][1]][raw[i][2]] = 1
-	end
-	return mtx
-end
-
---[[
-给定数据集data，将它随机分成M份，取出其中的第k份，返回第k份，M-1份
+给定数据集data,将它随机分成M份,取出其中的第k份,返回第k份,M-1份
+@param table data 	-- 待拆分的数据矩阵
+@param number M 	-- 要拆分的份数
+@param number k 	-- 第k份作为测试集
+@param number seed 	-- 随机数种子,通常为当前时间戳
+@return train, test -- 训练集, 测试集
 --]]
 local function SplitData(data, M, k, seed)
 	print("SplitData matrix begin ...")
@@ -303,7 +339,7 @@ end
 召回率计算
 @param table train 训练集
 @param table test  测试集
-@param number N    推荐数
+@param number N    推荐数目
 @return v 召回率
 --]]
 function Recall(train, test, N)
@@ -382,6 +418,9 @@ function RecallPrecision(train, test, N)
 	return hit / all, hit / p
 end
 
+--[[
+构建推荐模型
+--]]
 function buildModel()
 	local raw = LoadData(RAW_DATA_FILE)
 	local umMtx = LoadIntoUserMatrix(raw)
